@@ -1,54 +1,68 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const db = require("./models");
 const path = require("path");
 const cookieParser = require("cookie-parser");
+const jwt = require("jsonwebtoken");
+
 const app = express();
-const port = process.env.PORT || 3000;
+const port = 3000;
 
-const router = require("./routes/userRouter.js");
+const userRouter = require("./routes/userRouter");
 
-var corOptions = {
-  origin: "https://localhost:3000",
-};
-
-app.use(cors(corOptions));
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-app.use("/views", express.static(path.join(__dirname, "views")));
-app.use("/static", express.static(path.join(__dirname, "static")));
-app.set("view engine", "ejs");
 app.use(cookieParser());
 
-const cookieConfig = {
-  maxAge: 30000,
-  path: "/",
-};
+app.use("/views", express.static(path.join(__dirname, "views")));
+app.use("/static", express.static(path.join(__dirname, "static")));
 
+app.set("view engine", "ejs");
+
+// 회원가입 페이지
 app.get("/", async (req, res) => {
+  const users = await db.users.findAll();
+  res.render("index", { users });
+});
+
+// 로그인 페이지
+app.get("/login", (req, res) => {
+  res.render("login");
+});
+
+app.get("/loginAfter", async (req, res) => {
   try {
-    const users = await db.users.findAll();
-
-    let showPopUp = req.cookies.popupClosed === "N" ? false : true;
-
-    if (!req.cookies.popupClosed) {
-      res.cookie("popupClosed", "Y", cookieConfig);
+    const token = req.cookies.token;
+    if (!token) {
+      return res.redirect("/login");
     }
 
-    res.render("index", { users, showPopUp });
+    const decoded = jwt.verify(token, process.env.mySecretKey);
+
+    const user = await db.users.findOne({
+      where: { username: decoded.username },
+    });
+
+    if (!user) {
+      return res.redirect("/login");
+    }
+
+    res.render("loginAfter", { user });
   } catch (error) {
-    console.error("데이터를 가져오는 중 오류 발생:", error);
-    res.status(500).send("서버 오류");
+    console.error("로그인 후 페이지 오류:", error);
+    res.redirect("/login");
   }
 });
 
-app.get("/close-popup", (req, res) => {
-  res.cookie("popupClosed", "N", cookieConfig);
-  res.send("팝업이 닫혔습니다. 30초 동안 다시 표시되지 않습니다.");
+app.get("/logout", (req, res) => {
+  res.clearCookie("token");
+  res.redirect("/");
 });
 
 // API 라우터 등록
-app.use("/api", router);
+app.use("/api", userRouter);
 
 app.listen(port, () => {
   console.log(port, "번 포트에서 대기 중");
